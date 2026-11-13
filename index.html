@@ -732,7 +732,7 @@ button, input, textarea { font: inherit; color: inherit; }
   $$('a[href*="#"]').forEach(function (a) {
     a.addEventListener('click', function (e) {
       var url = new URL(a.href, location.href);
-      if (url.pathname !== location.pathname || !url.hash) return;
+      if (url.pathname !== location.pathname || url.search !== location.search || !url.hash) return;
       var target = url.hash === '#top' ? document.body : document.getElementById(url.hash.slice(1));
       if (!target) return;
       e.preventDefault();
@@ -802,9 +802,13 @@ button, input, textarea { font: inherit; color: inherit; }
   }
 
   /* ---------- 4. modulo contatti ----------
-     Con la chiave Web3Forms i messaggi arrivano per email (funziona su GitHub Pages).
-     Senza chiave, apre l'app di posta di chi scrive con il messaggio già compilato. */
-  var WEB3FORMS_KEY = 'dbf29ba0-cf64-4e14-8c2b-5968ca9eaaad';
+     Ogni chiave Web3Forms manda il messaggio a una casella: una chiave per Giovanni, una per Probjot.
+     Il messaggio parte verso tutte le chiavi; basta che ne arrivi uno perché l'invio sia riuscito.
+     Senza chiavi, apre l'app di posta di chi scrive con il messaggio già compilato. */
+  var WEB3FORMS_KEYS = [
+    'dbf29ba0-cf64-4e14-8c2b-5968ca9eaaad' // Giovanni
+    // , 'CHIAVE-DI-PROBJOT'
+  ];
   var MAIL_TO = 'giovanni.bishara@gmail.com,singh.probjot00@gmail.com';
   var form = $('#form'), status = $('#formStatus');
   if (form && status) {
@@ -820,7 +824,7 @@ button, input, textarea { font: inherit; color: inherit; }
         bisogno: (form.querySelector('[name="bisogno"]:checked') || {}).value || '', messaggio: form.messaggio.value.trim(), lingua: lang
       };
       var subject = 'Nuovo contatto dal sito GBPS: ' + d.nome + (d.azienda ? ' (' + d.azienda + ')' : '');
-      if (!WEB3FORMS_KEY) {
+      if (!WEB3FORMS_KEYS.length) {
         var body = d.messaggio + '\n\n—\n' + d.nome + (d.azienda ? ', ' + d.azienda : '') + '\n' + d.email + '\nRichiesta: ' + d.bisogno;
         location.href = 'mailto:' + MAIL_TO + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
         status.className = 'f-status ok'; status.textContent = status.getAttribute('data-mail');
@@ -828,10 +832,15 @@ button, input, textarea { font: inherit; color: inherit; }
       }
       var btn = form.querySelector('button[type="submit"]'), label = btn.querySelector('.btn-t'), orig = label.textContent;
       btn.disabled = true; label.textContent = btn.getAttribute('data-sending');
-      var payload = { access_key: WEB3FORMS_KEY, subject: subject, from_name: 'Sito GBPS', name: d.nome, email: d.email,
-        Azienda: d.azienda || '-', Richiesta: d.bisogno, Lingua: d.lingua, message: d.messaggio };
-      fetch('https://api.web3forms.com/submit', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) })
-        .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || r.status); }); })
+      var sends = WEB3FORMS_KEYS.map(function (key) {
+        var payload = { access_key: key, subject: subject, from_name: 'Sito GBPS', name: d.nome, email: d.email,
+          Azienda: d.azienda || '-', Richiesta: d.bisogno, Lingua: d.lingua, message: d.messaggio };
+        return fetch('https://api.web3forms.com/submit', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) })
+          .then(function (r) { return r.json().then(function (j) { return r.ok && j.success; }); })
+          .catch(function () { return false; });
+      });
+      Promise.all(sends)
+        .then(function (res) { if (res.indexOf(true) < 0) throw new Error('send failed'); })
         .then(function () { form.classList.add('sent'); status.className = 'f-status ok'; status.textContent = status.getAttribute('data-ok'); })
         .catch(function () { status.className = 'f-status err'; status.textContent = status.getAttribute('data-err'); })
         .then(function () { btn.disabled = false; label.textContent = orig; });
